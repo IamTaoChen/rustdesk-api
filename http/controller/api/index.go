@@ -7,7 +7,6 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -56,7 +55,7 @@ func (i *Index) Heartbeat(c *gin.Context) {
 		return
 	}
 	//如果在40s以内则不更新
-	if time.Now().Unix()-peer.LastOnlineTime > 40 {
+	if time.Now().Unix()-peer.LastOnlineTime >= 30 {
 		upp := &model.Peer{RowId: peer.RowId, LastOnlineTime: time.Now().Unix(), LastOnlineIp: c.ClientIP()}
 		service.AllService.PeerService.Update(upp)
 	}
@@ -74,13 +73,9 @@ func (i *Index) Heartbeat(c *gin.Context) {
 // @Router /version [get]
 func (i *Index) Version(c *gin.Context) {
 	//读取resources/version文件
-	v, err := os.ReadFile("resources/version")
-	if err != nil {
-		response.Fail(c, 101, err.Error())
-		return
-	}
+	v := service.AllService.AppService.GetAppVersion()
 	response.Success(
 		c,
-		string(v),
+		v,
 	)
 }

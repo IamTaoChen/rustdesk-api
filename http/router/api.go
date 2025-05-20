@@ -48,11 +48,13 @@ func ApiInit(g *gin.Engine) {
 		//api/oauth/callback
 		frg.GET("/oauth/callback", o.OauthCallback)
 		frg.GET("/oauth/login", o.OauthCallback)
+		frg.GET("/oauth/msg", o.Message)
 	}
 	{
 		pe := &api.Peer{}
 		//提交系统信息
 		frg.POST("/sysinfo", pe.SysInfo)
+		frg.POST("/sysinfo_ver", pe.SysInfoVer)
 	}
 
 	if global.Config.App.WebClient == 1 {

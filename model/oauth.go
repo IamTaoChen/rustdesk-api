@@ -99,7 +99,7 @@ func (ou *OauthUser) ToUser(user *User, overideUsername bool) {
 	if overideUsername {
 		user.Username = ou.Username
 	}
-	user.Email = ou.Email
+	user.Email = strings.ToLower(ou.Email)
 	user.Nickname = ou.Name
 	user.Avatar = ou.Picture
 }

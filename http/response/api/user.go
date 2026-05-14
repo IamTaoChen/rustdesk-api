@@ -25,6 +25,8 @@ type UserPayload struct {
 	IsAdmin *bool                  `json:"is_admin"`
 	Status  int                    `json:"status"`
 	Info    map[string]interface{} `json:"info"`
+	DisplayName string             `json:"display_name,omitempty"`
+	Avatar      string             `json:"avatar,omitempty"`
 }
 
 func (up *UserPayload) FromUser(user *model.User) *UserPayload {
@@ -33,6 +35,8 @@ func (up *UserPayload) FromUser(user *model.User) *UserPayload {
 	up.IsAdmin = user.IsAdmin
 	up.Status = int(user.Status)
 	up.Info = map[string]interface{}{}
+	up.DisplayName = user.Nickname
+    up.Avatar = user.Avatar
 	return up
 }
 

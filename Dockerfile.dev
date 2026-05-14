@@ -3,12 +3,12 @@ ARG GO_VERSION=1.26
 ARG BUILDARCH=amd64
 
 # Stage 1: Builder Stage
-FROM golang:${GO_VERSION}-alpine AS builder-backend
+FROM golang:${GO_VERSION}-trixie AS builder-backend
 # FROM crazymax/xgo:${GO_VERSION} AS builder-backend
 
 # Set up working directory
 WORKDIR /app
-RUN apk add --no-cache gcc musl-dev
+RUN apt-get update && apt-get install -y gcc libc6-dev
 # Step 1: Copy the source code
 COPY . .
 
@@ -58,19 +58,13 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # Stage 2: Final Image
-FROM alpine:latest
+FROM debian:trixie-slim
 
 # Set up working directory
 WORKDIR /app
 
 # Install necessary runtime dependencies
-# Install required tools without caching index to minimize image size
-ARG COUNTRY
-RUN if [ "$COUNTRY" = "CN" ] ; then \
-        echo "It is in China, updating the repositories"; \
-        sed -i 's#https\?://dl-cdn.alpinelinux.org/alpine#https://mirrors.tuna.tsinghua.edu.cn/alpine#g' /etc/apk/repositories; \
-    fi && \
-    apk update && apk add --no-cache tzdata file
+RUN apt-get update && apt-get -y --no-install-recommends install tzdata file && rm -rf /var/lib/apt/lists/*
 
 # Copy the built application and resources from the builder stage
 COPY --from=builder-backend /app/release /app/
@@ -88,6 +82,7 @@ RUN file /app/apimain && \
 # Set up a volume for persistent data
 VOLUME /app/data
 
+# USER 1000:1000
 # Expose the necessary port
 EXPOSE 21114
 

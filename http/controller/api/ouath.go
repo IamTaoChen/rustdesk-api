@@ -208,6 +208,9 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 			})
 			return
 		}
+		if oauthUser.Sync2User(user) {
+			_ = service.AllService.UserService.Update(user)
+		}
 		c.HTML(http.StatusOK, "oauth_success.html", gin.H{
 			"message": "BindSuccess",
 		})
@@ -254,6 +257,9 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 			})*/
 			c.Redirect(http.StatusFound, "/_admin/#/")
 			return
+		}
+		if oauthUser.Sync2User(user) {
+			_ = service.AllService.UserService.Update(user)
 		}
 		c.HTML(http.StatusOK, "oauth_success.html", gin.H{
 			"message": "OauthSuccess",

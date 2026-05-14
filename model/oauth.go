@@ -104,6 +104,25 @@ func (ou *OauthUser) ToUser(user *User, overideUsername bool) {
 	user.Avatar = ou.Picture
 }
 
+func (ou *OauthUser) Sync2User(user *User) bool {
+	if user == nil {
+		return false
+	}
+	if !strings.EqualFold(user.Email, ou.Email) {
+		return false
+	}
+	updated := false
+	if user.Nickname == "" && ou.Name != "" {
+		user.Nickname = ou.Name
+		updated = true
+	}
+	if user.Avatar == "" && ou.Picture != "" {
+		user.Avatar = ou.Picture
+		updated = true
+	}
+	return updated
+}
+
 type OauthUserBase struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`

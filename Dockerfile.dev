@@ -1,14 +1,14 @@
 # Use build arguments for Go version and architecture
-ARG GO_VERSION=1.22
+ARG GO_VERSION=1.26
 ARG BUILDARCH=amd64
 
 # Stage 1: Builder Stage
-# FROM golang:${GO_VERSION}-alpine AS builder
-FROM crazymax/xgo:${GO_VERSION} AS builder-backend
+FROM golang:${GO_VERSION}-alpine AS builder-backend
+# FROM crazymax/xgo:${GO_VERSION} AS builder-backend
 
 # Set up working directory
 WORKDIR /app
-
+RUN apk add --no-cache gcc musl-dev
 # Step 1: Copy the source code
 COPY . .
 
@@ -24,12 +24,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Step 4: Build the Go application with CGO enabled and specified ldflags
 RUN --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=1 GOOS=linux go build -a \
-    -ldflags "-s -w --extldflags '-static -fpic'" \
-    -installsuffix cgo -o release/apimain cmd/apimain.go
+    CGO_ENABLED=1 GOOS=linux go build \
+    -ldflags "-s -w" \
+    -o release/apimain cmd/apimain.go
 
 # Stage 2: Frontend Build Stage (builder2)
-FROM node:18-alpine AS builder-admin-frontend
+FROM node:24-alpine AS builder-admin-frontend
 
 # Set working directory
 WORKDIR /frontend
@@ -47,14 +47,15 @@ ARG FRONTEND_GIT_BRANCH=master
 # Clone the frontend repository
 
 RUN git clone -b $FRONTEND_GIT_BRANCH $FRONTEND_GIT_REPO .
-
 # Install required tools without caching index to minimize image size
 RUN if [ "$COUNTRY" = "CN" ] ; then \
         echo "It is in China, updating NPM_CONFIG_REGISTRY"; \
         export NPM_CONFIG_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"; \
     fi && \
-    npm install && npm run build
+    npm ci --frozen-lockfile
 
+ENV NODE_ENV=production
+RUN npm run build
 
 # Stage 2: Final Image
 FROM alpine:latest

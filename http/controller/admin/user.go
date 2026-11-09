@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http/request/admin"
@@ -337,12 +338,17 @@ func (ct *User) Register(c *gin.Context) {
 		return
 	}
 	// 注册成功后自动登录
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, loginErr := service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId: u.Id,
 		Client: model.LoginLogClientWebAdmin,
 		Uuid:   "",
 		Ip:     c.ClientIP(),
 		Type:   model.LoginLogTypeAccount,
 	})
+	if loginErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "login_failed"})
+		return
+	}
+
 	responseLoginSuccess(c, u, ut.Token)
 }

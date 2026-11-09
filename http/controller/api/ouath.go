@@ -96,7 +96,7 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 	service.AllService.OauthService.DeleteOauthCache(q.Code)
 
 	// 创建登录日志并生成用户令牌
-	ut = service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, loginErr := service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   v.DeviceType,
 		DeviceId: v.Id,
@@ -106,7 +106,7 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 		Platform: v.DeviceOs,
 	})
 
-	if ut == nil {
+	if loginErr != nil || ut == nil {
 		response.Error(c, response.TranslateMsg(c, "LoginFailed"))
 		return nil, nil
 	}

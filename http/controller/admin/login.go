@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -86,7 +87,7 @@ func (ct *Login) Login(c *gin.Context) {
 		return
 	}
 
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, loginErr := service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   model.LoginLogClientWebAdmin,
 		Uuid:     "", //must be empty
@@ -94,6 +95,11 @@ func (ct *Login) Login(c *gin.Context) {
 		Type:     model.LoginLogTypeAccount,
 		Platform: f.Platform,
 	})
+	if loginErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "login_failed"})
+		return
+	}
+
 
 	// 登录成功，清除登录限制
 	loginLimiter.RemoveAttempts(clientIp)

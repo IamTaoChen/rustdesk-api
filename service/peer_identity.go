@@ -187,3 +187,31 @@ func LockPeerIdentity(tx *gorm.DB) error {
 	}
 	return tx.Model(&lock).UpdateColumn("id", gorm.Expr("id")).Error
 }
+
+func exactPeerByUUID(tx *gorm.DB, uuid string) (*model.Peer, error) {
+	var peers []model.Peer
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("uuid = ?", uuid).Limit(2).Find(&peers).Error; err != nil {
+		return nil, err
+	}
+	if len(peers) > 1 || (len(peers) == 1 && peers[0].Uuid != uuid) {
+		return nil, ErrPeerIdentityConflict
+	}
+	if len(peers) == 0 {
+		return nil, nil
+	}
+	return &peers[0], nil
+}
+
+func bindExactPeerUser(tx *gorm.DB, id, uuid string, userID uint) error {
+	peer, err := exactPeerByUUID(tx, uuid)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	} // Login may arrive before the first sysinfo report.
+	if peer.Id != id {
+		return ErrPeerIdentityConflict
+	}
+	return tx.Model(&model.Peer{}).Where("row_id = ?", peer.RowId).Update("user_id", userID).Error
+}

@@ -94,22 +94,27 @@ func (us *UserService) GenerateToken(u *model.User) string {
 }
 
 // Login 登录
-func (us *UserService) Login(u *model.User, llog *model.LoginLog) *model.UserToken {
+func (us *UserService) Login(u *model.User, llog *model.LoginLog) (*model.UserToken, error) {
+	if u == nil || u.Id == 0 || llog == nil { return nil, errors.New("invalid login state") }
+	if llog.Uuid != "" && !validPeerIdentity(llog.DeviceId, llog.Uuid) { return nil, ErrInvalidPeerIdentity }
 	token := us.GenerateToken(u)
-	ut := &model.UserToken{
-		UserId:     u.Id,
-		Token:      token,
-		DeviceUuid: llog.Uuid,
-		DeviceId:   llog.DeviceId,
-		ExpiredAt:  us.UserTokenExpireTimestamp(),
-	}
-	DB.Create(ut)
-	llog.UserTokenId = ut.UserId
-	DB.Create(llog)
-	if llog.Uuid != "" {
-		AllService.PeerService.UuidBindUserId(llog.DeviceId, llog.Uuid, u.Id)
-	}
-	return ut
+	if token == "" { return nil, errors.New("token generation failed") }
+	ut := &model.UserToken{UserId: u.Id, Token: token, DeviceUuid: llog.Uuid,
+		DeviceId: llog.DeviceId, ExpiredAt: us.UserTokenExpireTimestamp()}
+	entry := *llog
+	entry.UserId = u.Id
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if entry.Uuid != "" {
+			if err := LockPeerIdentity(tx); err != nil { return err }
+			if err := bindExactPeerUser(tx, entry.DeviceId, entry.Uuid, u.Id); err != nil { return err }
+		}
+		if err := tx.Create(ut).Error; err != nil { return err }
+		entry.UserTokenId = ut.Id
+		return tx.Create(&entry).Error
+	})
+	if err != nil { return nil, err }
+	*llog = entry
+	return ut, nil
 }
 
 // CurUser 获取当前用户

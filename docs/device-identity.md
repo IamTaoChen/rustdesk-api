@@ -15,3 +15,11 @@ Existing duplicate records must be reviewed separately. Do not add UUID uniquene
 System-information reports and heartbeats retain the existing anonymous client protocol. A UUID is an association key, not a password, signature or proof of device ownership. This change does not authenticate devices or modify user login policy. Restrict the API ingress to the deployment's intended clients/trusted path; knowing a UUID is not cryptographic authorization to rename a device. Keep such endpoints out of deployments that require authenticated device inventory until that authentication is implemented.
 
 Validation uses isolated databases and Docker. No running database, production configuration or live device data is used by the tests.
+
+## Administrative edits and sessions
+
+Administrative creation and editing, report reconciliation, device login binding, logout and peer deletion now acquire the same identity coordination lock. Administrative creation rejects an occupied ID or UUID. Editing preserves the assigned UUID (an omitted UUID keeps its value); changing a nonempty UUID requires a separate identity-reset workflow. Group removal and empty aliases remain supported. An inventory ID edit updates matching active token metadata but does not rename the device in hbbs or on the client.
+
+Login commits the token, login log and exact device binding together, and the login log references the token row ID. Web/admin login without UUID and legacy ID-only login remain compatible. A device login can precede its initial system-information report; a conflicting or stale existing device identity fails without leaving token/log rows. Logout revokes the exact token and clears only the same user's byte-exact UUID associations, including any historical duplicate inventory rows. Deleting a legacy empty-UUID device never revokes browser tokens. Peer deletion and token revocation commit together.
+
+When a report has no current owner, automatic association requires a login log linked to an existing, unexpired token with the exact same UUID, device ID and user. Logout or device deletion revokes that association; historical login logs alone cannot restore it. Older logs with incorrect token references do not establish a new association; log in again. Existing stored ownership is preserved during reports.

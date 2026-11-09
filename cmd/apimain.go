@@ -40,9 +40,9 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return InitGlobal()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		global.Logger.Info("API SERVER START")
-		http.ApiInit()
+		return http.ApiInit()
 	},
 }
 

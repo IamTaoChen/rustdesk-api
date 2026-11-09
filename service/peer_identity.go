@@ -38,12 +38,7 @@ func (ps *PeerService) UpsertSysInfo(info *model.Peer) (*model.Peer, error) {
 	}
 	var peer model.Peer
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		lock := model.PeerIdentityLock{Id: 1}
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&lock).Error; err != nil {
-			return err
-		}
-		// INSERT DO NOTHING alone does not lock an existing row on PostgreSQL.
-		if err := tx.Model(&lock).UpdateColumn("id", gorm.Expr("id")).Error; err != nil {
+		if err := LockPeerIdentity(tx); err != nil {
 			return err
 		}
 		var byUUID, byID []model.Peer
@@ -182,4 +177,13 @@ func moveExactPeerTokens(tx *gorm.DB, uuid, oldID, newID string) error {
 		return nil
 	}
 	return tx.Model(&model.UserToken{}).Where("id IN ?", ids).Update("device_id", newID).Error
+}
+
+// LockPeerIdentity must be called inside a transaction before identity writes.
+func LockPeerIdentity(tx *gorm.DB) error {
+	lock := model.PeerIdentityLock{Id: 1}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&lock).Error; err != nil {
+		return err
+	}
+	return tx.Model(&lock).UpdateColumn("id", gorm.Expr("id")).Error
 }

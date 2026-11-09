@@ -16,10 +16,8 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/lib/logger"
 	"github.com/lejianwen/rustdesk-api/v2/lib/orm"
 	"github.com/lejianwen/rustdesk-api/v2/lib/upload"
-	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
-	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -39,8 +37,8 @@ const DatabaseVersion = 266
 var rootCmd = &cobra.Command{
 	Use:   "apimain",
 	Short: "RUSTDESK API SERVER",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		InitGlobal()
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return InitGlobal()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		global.Logger.Info("API SERVER START")
@@ -110,7 +108,7 @@ func main() {
 	}
 }
 
-func InitGlobal() {
+func InitGlobal() error {
 	//配置解析
 	global.Viper = config.Init(&global.Config, global.ConfigPath)
 
@@ -210,10 +208,10 @@ func InitGlobal() {
 		BanDuration:      30 * time.Minute,
 	})
 	global.LoginLimiter.RegisterProvider(utils.B64StringCaptchaProvider{})
-	DatabaseAutoUpdate()
+	return DatabaseAutoUpdate()
 }
 
-func DatabaseAutoUpdate() {
+func DatabaseAutoUpdate() error {
 	version := DatabaseVersion
 
 	db := global.DB
@@ -238,8 +236,7 @@ func DatabaseAutoUpdate() {
 			// 获取底层的 *sql.DB 对象，并确保在程序退出时关闭连接
 			sqlDBWithoutDB, err := dbWithoutDB.DB()
 			if err != nil {
-				global.Logger.Errorf("获取底层 *sql.DB 对象失败: %v", err)
-				return
+				return fmt.Errorf("open migration connection: %w", err)
 			}
 			defer func() {
 				if err := sqlDBWithoutDB.Close(); err != nil {
@@ -249,110 +246,10 @@ func DatabaseAutoUpdate() {
 
 			err = dbWithoutDB.Exec("CREATE DATABASE IF NOT EXISTS " + dbName + " DEFAULT CHARSET utf8mb4").Error
 			if err != nil {
-				global.Logger.Error(err)
-				return
+				return fmt.Errorf("create database: %w", err)
 			}
 		}
 	}
 
-	if !db.Migrator().HasTable(&model.Version{}) {
-		Migrate(uint(version))
-	} else {
-		//查找最后一个version
-		var v model.Version
-		db.Last(&v)
-		if v.Version < uint(version) {
-			Migrate(uint(version))
-		}
-
-		// 245迁移
-		if v.Version < 245 {
-			//oauths 表的 oauth_type 字段设置为 op同样的值
-			db.Exec("update oauths set oauth_type = op")
-			db.Exec("update oauths set issuer = 'https://accounts.google.com' where op = 'google'")
-			db.Exec("update user_thirds set oauth_type = third_type, op = third_type")
-			//通过email迁移旧的google授权
-			uts := make([]model.UserThird, 0)
-			db.Where("oauth_type = ?", "google").Find(&uts)
-			for _, ut := range uts {
-				if ut.UserId > 0 {
-					db.Model(&model.User{}).Where("id = ?", ut.UserId).Update("email", ut.OpenId)
-				}
-			}
-		}
-		if v.Version < 246 {
-			db.Exec("update oauths set issuer = 'https://accounts.google.com' where op = 'google' and issuer is null")
-		}
-	}
-
-}
-func Migrate(version uint) {
-	global.Logger.Info("Migrating....", version)
-	err := global.DB.AutoMigrate(
-		&model.Version{},
-		&model.User{},
-		&model.UserToken{},
-		&model.Tag{},
-		&model.AddressBook{},
-		&model.Peer{},
-		&model.PeerIdentityLock{},
-		&model.Group{},
-		&model.UserThird{},
-		&model.Oauth{},
-		&model.LoginLog{},
-		&model.ShareRecord{},
-		&model.AuditConn{},
-		&model.AuditFile{},
-		&model.AddressBookCollection{},
-		&model.AddressBookCollectionRule{},
-		&model.ServerCmd{},
-		&model.DeviceGroup{},
-	)
-	if err != nil {
-		global.Logger.Error("migrate err :=>", err)
-	}
-	global.DB.Create(&model.Version{Version: version})
-	//如果是初次则创建一个默认用户
-	var vc int64
-	global.DB.Model(&model.Version{}).Count(&vc)
-	if vc == 1 {
-		localizer := global.Localizer("")
-		defaultGroup, _ := localizer.LocalizeMessage(&i18n.Message{
-			ID: "DefaultGroup",
-		})
-		group := &model.Group{
-			Name: defaultGroup,
-			Type: model.GroupTypeDefault,
-		}
-		service.AllService.GroupService.Create(group)
-
-		shareGroup, _ := localizer.LocalizeMessage(&i18n.Message{
-			ID: "ShareGroup",
-		})
-		groupShare := &model.Group{
-			Name: shareGroup,
-			Type: model.GroupTypeShare,
-		}
-		service.AllService.GroupService.Create(groupShare)
-		//是true
-		is_admin := true
-		admin := &model.User{
-			Username: "admin",
-			Nickname: "Admin",
-			Status:   model.COMMON_STATUS_ENABLE,
-			IsAdmin:  &is_admin,
-			GroupId:  1,
-		}
-
-		// 生成随机密码
-		pwd := utils.RandomString(8)
-		global.Logger.Info("Admin Password Is: ", pwd)
-		var err error
-		admin.Password, err = utils.EncryptPassword(pwd)
-		if err != nil {
-			global.Logger.Fatalf("failed to generate admin password: %v", err)
-		}
-		global.DB.Create(admin)
-	}
-
+	return Migrate(uint(version))
 }

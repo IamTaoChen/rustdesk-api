@@ -7,7 +7,7 @@ go env -w GOOS=windows
 go env -w GOARCH=amd64
 swag init -g cmd/apimain.go --output docs/api --instanceName api --exclude http/controller/admin
 swag init -g cmd/apimain.go --output docs/admin --instanceName admin --exclude http/controller/api
-go build -o release/apimain.exe cmd/apimain.go
+go build -o release/apimain.exe ./cmd
 xcopy resources release\resources /E /I /Y
 xcopy docs release\docs /E /I /Y
 xcopy conf release\conf /E /I /Y

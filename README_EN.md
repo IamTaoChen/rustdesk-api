@@ -256,7 +256,7 @@ Download the release from [release](https://github.com/lejianwen/rustdesk-api/re
 4. Run:
     ```bash
     # Run directly
-   go run cmd/apimain.go
+   go run ./cmd
    # Or generate and run the API using generate_api.go
    go generate generate_api.go
    ```

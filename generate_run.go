@@ -1,3 +1,3 @@
 package main
 
-//go:generate go run cmd/apimain.go
+//go:generate go run ./cmd

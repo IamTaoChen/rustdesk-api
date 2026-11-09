@@ -257,7 +257,7 @@
 4. 运行
     ```bash
     #直接运行
-    go run cmd/apimain.go
+    go run ./cmd
     #或者使用generate_api.go生成api并运行
     go generate generate_api.go
     ```

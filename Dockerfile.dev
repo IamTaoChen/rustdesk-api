@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 GOOS=linux go build \
     -ldflags "-s -w" \
-    -o release/apimain cmd/apimain.go
+    -o release/apimain ./cmd
 
 # Stage 2: Frontend Build Stage (builder2)
 FROM node:24-alpine AS builder-admin-frontend

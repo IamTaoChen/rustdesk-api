@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -142,19 +143,20 @@ func (ps *PeerService) Heartbeat(id, uuid, ip string, now int64) (bool, error) {
 
 // SQL equality may be case-insensitive; continue until the latest exact pair.
 func latestExactPeerUser(tx *gorm.DB, uuid, id string) (uint, error) {
-	rows, err := tx.Model(&model.LoginLog{}).Select("user_id", "uuid", "device_id").
-		Where("uuid = ? and device_id = ?", uuid, id).Order("id desc").Rows()
+	rows, err := tx.Table("login_logs AS l").Select("l.user_id, l.uuid, l.device_id, t.user_id, t.device_uuid, t.device_id").
+		Joins("JOIN user_tokens AS t ON t.id = l.user_token_id").
+		Where("l.uuid = ? and l.device_id = ? and t.expired_at >= ?", uuid, id, time.Now().Unix()).Order("l.id desc").Rows()
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var userID uint
-		var storedUUID, storedID string
-		if err := rows.Scan(&userID, &storedUUID, &storedID); err != nil {
+		var userID, tokenUserID uint
+		var storedUUID, storedID, tokenUUID, tokenID string
+		if err := rows.Scan(&userID, &storedUUID, &storedID, &tokenUserID, &tokenUUID, &tokenID); err != nil {
 			return 0, err
 		}
-		if storedUUID == uuid && storedID == id {
+		if storedUUID == uuid && storedID == id && tokenUUID == uuid && tokenID == id && tokenUserID == userID {
 			return userID, nil
 		}
 	}
@@ -207,10 +209,21 @@ func bindExactPeerUser(tx *gorm.DB, id, uuid string, userID uint) error {
 	if err != nil {
 		return err
 	}
+	var byID []model.Peer
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).Limit(2).Find(&byID).Error; err != nil {
+		return err
+	}
+	if len(byID) > 1 || (len(byID) == 1 && byID[0].Id != id) {
+		return ErrPeerIdentityConflict
+	}
 	if peer == nil {
+		if len(byID) == 1 && byID[0].Uuid != "" {
+			return ErrPeerIdentityConflict
+		}
+		// Login may precede the first UUID report, including legacy ID-only rows.
 		return nil
-	} // Login may arrive before the first sysinfo report.
-	if peer.Id != id {
+	}
+	if peer.Id != id || (len(byID) == 1 && byID[0].RowId != peer.RowId) {
 		return ErrPeerIdentityConflict
 	}
 	return tx.Model(&model.Peer{}).Where("row_id = ?", peer.RowId).Update("user_id", userID).Error

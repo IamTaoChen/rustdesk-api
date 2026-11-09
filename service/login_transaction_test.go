@@ -108,3 +108,75 @@ func TestLoginAllowsWebAndPendingDeviceReport(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginRejectsOccupiedOrDuplicatedDeviceID(t *testing.T) {
+	for _, duplicate := range []bool{false, true} {
+		t.Run(map[bool]string{false: "occupied", true: "duplicate"}[duplicate], func(t *testing.T) {
+			db := identityDB(t)
+			loginSettings(t)
+			createIdentityRow(t, db, &model.Peer{Id: "Device", Uuid: "other"})
+			if duplicate {
+				createIdentityRow(t, db, &model.Peer{Id: "Device", Uuid: "mine"})
+			}
+			token, err := (&UserService{}).Login(&model.User{IdModel: model.IdModel{Id: 7}}, &model.LoginLog{DeviceId: "Device", Uuid: "mine"})
+			if !errors.Is(err, ErrPeerIdentityConflict) || token != nil {
+				t.Fatalf("ID conflict produced login: %v", err)
+			}
+		})
+	}
+}
+
+func TestReportCannotRestoreRevokedDeviceOwnership(t *testing.T) {
+	for _, remove := range []bool{false, true} {
+		t.Run(map[bool]string{false: "logout", true: "delete"}[remove], func(t *testing.T) {
+			db := identityDB(t)
+			loginSettings(t)
+			peer := model.Peer{Id: "Device", Uuid: "same"}
+			createIdentityRow(t, db, &peer)
+			user := &model.User{IdModel: model.IdModel{Id: 7}, Username: "user"}
+			token, err := (&UserService{}).Login(user, &model.LoginLog{DeviceId: peer.Id, Uuid: peer.Uuid})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if remove {
+				err = (&PeerService{}).Delete(&peer)
+			} else {
+				err = (&UserService{}).Logout(user, token.Token)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			reported, err := (&PeerService{}).UpsertSysInfo(&model.Peer{Id: peer.Id, Uuid: peer.Uuid})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reported.UserId != 0 {
+				t.Fatal("anonymous report restored revoked historical ownership")
+			}
+		})
+	}
+}
+
+func TestDeviceLoginBeforeLegacyUUIDReport(t *testing.T) {
+	db := identityDB(t)
+	loginSettings(t)
+	createIdentityRow(t, db, &model.Peer{Id: "legacy"})
+	if _, err := (&UserService{}).Login(&model.User{IdModel: model.IdModel{Id: 7}}, &model.LoginLog{DeviceId: "legacy", Uuid: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	reported, err := (&PeerService{}).UpsertSysInfo(&model.Peer{Id: "legacy", Uuid: "new"})
+	if err != nil || reported.UserId != 7 {
+		t.Fatalf("legacy pending login association failed: %v", err)
+	}
+}
+
+func TestReportDoesNotInferOwnerFromExpiredLogin(t *testing.T) {
+	db := identityDB(t)
+	token := model.UserToken{UserId: 7, DeviceId: "Device", DeviceUuid: "same", ExpiredAt: time.Now().Add(-time.Hour).Unix()}
+	createIdentityRow(t, db, &token)
+	createIdentityRow(t, db, &model.LoginLog{UserId: 7, DeviceId: "Device", Uuid: "same", UserTokenId: token.Id})
+	peer, err := (&PeerService{}).UpsertSysInfo(&model.Peer{Id: "Device", Uuid: "same"})
+	if err != nil || peer.UserId != 0 {
+		t.Fatalf("expired login restored ownership: %v", err)
+	}
+}

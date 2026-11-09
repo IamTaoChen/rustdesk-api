@@ -125,7 +125,9 @@ func TestSysInfoLegacyAndZeroValues(t *testing.T) {
 	if got.RowId != peer.RowId || got.Uuid != "opaque-uuid" || got.Username != "" || got.UserId != 5 || got.GroupId != 2 || got.Alias != "keep" {
 		t.Fatalf("legacy adoption or empty metadata failed: %#v", got)
 	}
-	createIdentityRow(t, db, &model.LoginLog{Uuid: "new-uuid", DeviceId: "new", UserId: 8})
+	token := model.UserToken{DeviceUuid: "new-uuid", DeviceId: "new", UserId: 8, ExpiredAt: time.Now().Add(time.Hour).Unix()}
+	createIdentityRow(t, db, &token)
+	createIdentityRow(t, db, &model.LoginLog{Uuid: "new-uuid", DeviceId: "new", UserId: 8, UserTokenId: token.Id})
 	got, err = ps.UpsertSysInfo(&model.Peer{Id: "new", Uuid: "new-uuid"})
 	if err != nil || got.UserId != 8 {
 		t.Fatalf("new-device login association failed: %v", err)
@@ -267,14 +269,16 @@ func TestSysInfoUsesLatestExactLoginIdentity(t *testing.T) {
 	if err := db.Exec("DROP TABLE login_logs").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("CREATE TABLE login_logs (id integer PRIMARY KEY, uuid text COLLATE NOCASE, device_id text COLLATE NOCASE, user_id integer)").Error; err != nil {
+	if err := db.Exec("CREATE TABLE login_logs (id integer PRIMARY KEY, uuid text COLLATE NOCASE, device_id text COLLATE NOCASE, user_id integer, user_token_id integer)").Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, row := range []struct {
 		uuid, id string
 		user     uint
 	}{{"AbCd==", "Device", 7}, {"abcd==", "Device", 9}, {"AbCd==", "device", 10}} {
-		if err := db.Exec("INSERT INTO login_logs (uuid,device_id,user_id) VALUES (?,?,?)", row.uuid, row.id, row.user).Error; err != nil {
+		token := model.UserToken{DeviceUuid: row.uuid, DeviceId: row.id, UserId: row.user, ExpiredAt: time.Now().Add(time.Hour).Unix()}
+		createIdentityRow(t, db, &token)
+		if err := db.Exec("INSERT INTO login_logs (uuid,device_id,user_id,user_token_id) VALUES (?,?,?,?)", row.uuid, row.id, row.user, token.Id).Error; err != nil {
 			t.Fatal(err)
 		}
 	}

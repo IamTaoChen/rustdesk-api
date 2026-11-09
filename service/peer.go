@@ -33,30 +33,19 @@ func (ps *PeerService) FindByUserIdAndUuid(uuid string, userId uint) *model.Peer
 }
 
 // UuidBindUserId 绑定用户id
-func (ps *PeerService) UuidBindUserId(deviceId string, uuid string, userId uint) {
-	peer := ps.FindByUuid(uuid)
-	// 如果存在则更新
-	if peer.RowId > 0 {
-		peer.UserId = userId
-		ps.Update(peer)
-	} else {
-		// 不存在则创建
-		/*if deviceId != "" {
-			DB.Create(&model.Peer{
-				Id:     deviceId,
-				Uuid:   uuid,
-				UserId: userId,
-			})
-		}*/
-	}
+func (ps *PeerService) UuidBindUserId(deviceId string, uuid string, userId uint) error {
+	if !validPeerIdentity(deviceId,uuid) {return ErrInvalidPeerIdentity}
+	return DB.Transaction(func(tx *gorm.DB)error{
+		if err:=LockPeerIdentity(tx);err!=nil {return err}
+		return bindExactPeerUser(tx,deviceId,uuid,userId)
+	})
 }
 
-// UuidUnbindUserId 解绑用户id, 用于用户注销
-func (ps *PeerService) UuidUnbindUserId(uuid string, userId uint) {
-	peer := ps.FindByUserIdAndUuid(uuid, userId)
-	if peer.RowId > 0 {
-		DB.Model(peer).Update("user_id", 0)
-	}
+func (ps *PeerService) UuidUnbindUserId(uuid string, userId uint) error {
+	return DB.Transaction(func(tx *gorm.DB)error{
+		if err:=LockPeerIdentity(tx);err!=nil {return err}
+		return clearExactPeerUser(tx,uuid,userId)
+	})
 }
 
 // EraseUserId 清除用户id, 用于用户删除
@@ -105,19 +94,12 @@ func (ps *PeerService) ListFilterByUserId(page, pageSize uint, where func(tx *go
 
 // Create 创建
 func (ps *PeerService) Create(u *model.Peer) error {
-	res := DB.Create(u).Error
-	return res
+	return createManagedPeer(u)
 }
 
-// Delete 删除, 同时也应该删除token
 func (ps *PeerService) Delete(u *model.Peer) error {
-	uuid := u.Uuid
-	err := DB.Delete(u).Error
-	if err != nil {
-		return err
-	}
-	// 删除token
-	return AllService.UserService.FlushTokenByUuid(uuid)
+	if u==nil || u.RowId==0 {return ErrInvalidPeerIdentity}
+	return deleteManagedPeers([]uint{u.RowId})
 }
 
 // GetUuidListByIDs 根据ids获取uuid列表
@@ -138,13 +120,7 @@ func (ps *PeerService) GetUuidListByIDs(ids []uint) ([]string, error) {
 
 // BatchDelete 批量删除, 同时也应该删除token
 func (ps *PeerService) BatchDelete(ids []uint) error {
-	uuids, err := ps.GetUuidListByIDs(ids)
-	err = DB.Where("row_id in (?)", ids).Delete(&model.Peer{}).Error
-	if err != nil {
-		return err
-	}
-	// 删除token
-	return AllService.UserService.FlushTokenByUuids(uuids)
+	return deleteManagedPeers(ids)
 }
 
 // Update 更新
@@ -158,7 +134,5 @@ func (ps *PeerService) Update(u *model.Peer) error {
 // Updates(struct) skips zero values, so moving a peer out of its group (group_id=0)
 // or clearing the alias never reached the database.
 func (ps *PeerService) UpdateByAdmin(u *model.Peer) error {
-	return DB.Model(u).
-		Select("id", "cpu", "hostname", "memory", "os", "username", "uuid", "version", "group_id", "alias").
-		Updates(u).Error
+	return updateManagedPeer(u)
 }

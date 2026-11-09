@@ -200,15 +200,21 @@ func (us *UserService) GetUuidByToken(u *model.User, token string) string {
 
 // Logout 退出登录 -> 删除token, 解绑uuid
 func (us *UserService) Logout(u *model.User, token string) error {
-	uuid := us.GetUuidByToken(u, token)
-	err := DB.Where("user_id = ? and token = ?", u.Id, token).Delete(&model.UserToken{}).Error
-	if err != nil {
-		return err
-	}
-	if uuid != "" {
-		AllService.PeerService.UuidUnbindUserId(uuid, u.Id)
-	}
-	return nil
+	if u==nil || u.Id==0 || token=="" {return errors.New("invalid logout state")}
+	return DB.Transaction(func(tx *gorm.DB)error{
+		if err:=LockPeerIdentity(tx);err!=nil {return err}
+		var tokens []model.UserToken
+		if err:=tx.Where("user_id = ? and token = ?",u.Id,token).Find(&tokens).Error;err!=nil {return err}
+		ids:=make([]uint,0,len(tokens))
+		uuids:=make(map[string]bool)
+		for _,entry:=range tokens {
+			if entry.UserId==u.Id && entry.Token==token {ids=append(ids,entry.Id);if entry.DeviceUuid!="" {uuids[entry.DeviceUuid]=true}}
+		}
+		if len(ids)==0 {return nil}
+		if err:=tx.Where("id IN ?",ids).Delete(&model.UserToken{}).Error;err!=nil {return err}
+		for uuid:=range uuids {if err:=clearExactPeerUser(tx,uuid,u.Id);err!=nil {return err}}
+		return nil
+	})
 }
 
 // Delete 删除用户和oauth信息

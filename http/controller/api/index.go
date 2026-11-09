@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	requstform "github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
-	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"net/http"
 	"time"
@@ -40,24 +39,18 @@ func (i *Index) Index(c *gin.Context) {
 // @Router /heartbeat [post]
 func (i *Index) Heartbeat(c *gin.Context) {
 	info := &requstform.PeerInfoInHeartbeat{}
-	err := c.ShouldBindJSON(info)
+	if err := c.ShouldBindJSON(info); err != nil {
+		peerIdentityError(c, service.ErrInvalidPeerIdentity)
+		return
+	}
+	found, err := service.AllService.PeerService.Heartbeat(info.Id, info.Uuid, c.ClientIP(), time.Now().Unix())
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{})
+		peerIdentityError(c, err)
 		return
 	}
-	if info.Uuid == "" {
-		c.JSON(http.StatusOK, gin.H{})
+	if !found {
+		c.JSON(http.StatusOK, gin.H{"sysinfo": true})
 		return
-	}
-	peer := service.AllService.PeerService.FindById(info.Id)
-	if peer == nil || peer.RowId == 0 {
-		c.JSON(http.StatusOK, gin.H{})
-		return
-	}
-	//如果在40s以内则不更新
-	if time.Now().Unix()-peer.LastOnlineTime >= 30 {
-		upp := &model.Peer{RowId: peer.RowId, LastOnlineTime: time.Now().Unix(), LastOnlineIp: c.ClientIP()}
-		service.AllService.PeerService.Update(upp)
 	}
 	c.JSON(http.StatusOK, gin.H{})
 }

@@ -89,11 +89,14 @@ func (a *Ab) UpAb(c *gin.Context) {
 
 	err = service.AllService.AddressBookService.UpdateAddressBook(abd.Peers, user.Id)
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+		c.JSON(http.StatusInternalServerError, response.ErrorResponse{Error: "address_book_update_failed"})
 		return
 	}
 
-	service.AllService.TagService.UpdateTags(user.Id, tc)
+	if err := service.AllService.TagService.UpdateTags(user.Id, tc); err != nil {
+		c.JSON(http.StatusInternalServerError, response.ErrorResponse{Error: "address_book_update_failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, nil)
 }

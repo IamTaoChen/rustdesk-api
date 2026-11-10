@@ -119,6 +119,9 @@ func (ps *PeerService) Heartbeat(id, uuid, ip string, now int64) (bool, error) {
 	}
 	found := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockSQLiteWriter(tx); err != nil {
+			return err
+		}
 		var peers []model.Peer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("row_id", "id", "uuid").
 			Where("id = ? and uuid = ?", id, uuid).Limit(2).Find(&peers).Error; err != nil {

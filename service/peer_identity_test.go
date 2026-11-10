@@ -318,7 +318,18 @@ func TestSysInfoMigratesOnlyExactTokenIdentity(t *testing.T) {
 }
 
 func TestHeartbeatLinearizesWithCaseOnlyRename(t *testing.T) {
+	for _, mode := range []string{"DELETE", "WAL"} {
+		t.Run(mode, func(t *testing.T) {
+			testHeartbeatLinearizesWithCaseOnlyRename(t, mode)
+		})
+	}
+}
+
+func testHeartbeatLinearizesWithCaseOnlyRename(t *testing.T, mode string) {
 	db := identityDB(t)
+	if err := db.Exec("PRAGMA journal_mode = " + mode).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Exec("DROP TABLE peers").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +366,7 @@ func TestHeartbeatLinearizesWithCaseOnlyRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Callback().Query().Remove("test_case_rename")
-	_, heartbeatErr := (&PeerService{}).Heartbeat("Device", "same", "192.0.2.1", 100)
+	found, heartbeatErr := (&PeerService{}).Heartbeat("Device", "same", "192.0.2.1", 100)
 	<-done
 	if err := <-result; err != nil {
 		t.Fatal(err)
@@ -367,8 +378,10 @@ func TestHeartbeatLinearizesWithCaseOnlyRename(t *testing.T) {
 	if committedBeforeValidationCompleted && peer.LastOnlineTime != 0 {
 		t.Fatal("stale case-only identity wrote online state after rename committed")
 	}
-	// SQLite may abort a read-to-write lock upgrade. That is safe: it must roll back.
-	if heartbeatErr != nil && peer.LastOnlineTime != 0 {
-		t.Fatal("failed heartbeat partially updated the device")
+	if heartbeatErr != nil {
+		t.Fatalf("heartbeat failed during a concurrent rename: %v", heartbeatErr)
+	}
+	if !found || peer.LastOnlineTime != 100 || peer.LastOnlineIp != "192.0.2.1" || peer.Id != "device" {
+		t.Fatalf("heartbeat and rename did not both commit: found=%v peer=%#v", found, peer)
 	}
 }

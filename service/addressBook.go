@@ -53,53 +53,53 @@ func (s *AddressBookService) AddAddressBook(ab *model.AddressBook) error {
 
 // UpdateAddressBook
 func (s *AddressBookService) UpdateAddressBook(abs []*model.AddressBook, userId uint) error {
-	//比较peers和数据库中的数据，如果peers中的数据在数据库中不存在，则添加，如果存在则更新，如果数据库中的数据在peers中不存在，则删除
-	// 开始事务
-	tx := DB.Begin()
-	//1. 获取数据库中的数据
-	var dbABs []*model.AddressBook
-	tx.Where("user_id = ?", userId).Find(&dbABs)
-	//2. 比较peers和数据库中的数据
-	//2.1 获取peers中的id
-	aBIds := make(map[string]*model.AddressBook)
-	for _, ab := range abs {
-		aBIds[ab.Id] = ab
-	}
-	//2.2 获取数据库中的id
-	dbABIds := make(map[string]*model.AddressBook)
-	for _, dbAb := range dbABs {
-		dbABIds[dbAb.Id] = dbAb
-	}
-	//2.3 比较peers和数据库中的数据
-	for id, ab := range aBIds {
-		dbAB, ok := dbABIds[id]
-		ab.UserId = userId
-		if !ok {
-			//添加
-			if ab.Platform == "" || ab.Username == "" || ab.Hostname == "" {
-				peer := AllService.PeerService.FindById(ab.Id)
-				if peer.RowId != 0 {
-					ab.Platform = AllService.AddressBookService.PlatformFromOs(peer.Os)
-					ab.Username = peer.Username
-					ab.Hostname = peer.Hostname
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockSQLiteWriter(tx); err != nil {
+			return err
+		}
+		var dbABs []*model.AddressBook
+		if err := tx.Where("user_id = ?", userId).Find(&dbABs).Error; err != nil {
+			return err
+		}
+		aBIds := make(map[string]*model.AddressBook)
+		for _, ab := range abs {
+			aBIds[ab.Id] = ab
+		}
+		dbABIds := make(map[string]*model.AddressBook)
+		for _, dbAb := range dbABs {
+			dbABIds[dbAb.Id] = dbAb
+		}
+		for id, ab := range aBIds {
+			dbAB, ok := dbABIds[id]
+			ab.UserId = userId
+			if !ok {
+				if ab.Platform == "" || ab.Username == "" || ab.Hostname == "" {
+					var peer model.Peer
+					if err := tx.Where("id = ?", ab.Id).Limit(1).Find(&peer).Error; err != nil {
+						return err
+					}
+					if peer.RowId != 0 {
+						ab.Platform = s.PlatformFromOs(peer.Os)
+						ab.Username = peer.Username
+						ab.Hostname = peer.Hostname
+					}
+				}
+				if err := tx.Create(ab).Error; err != nil {
+					return err
+				}
+			} else if err := tx.Model(&model.AddressBook{}).Where("row_id = ?", dbAB.RowId).Updates(ab).Error; err != nil {
+				return err
+			}
+		}
+		for id, dbAB := range dbABIds {
+			if _, ok := aBIds[id]; !ok {
+				if err := tx.Delete(dbAB).Error; err != nil {
+					return err
 				}
 			}
-			tx.Create(ab)
-		} else {
-			//更新
-			tx.Model(&model.AddressBook{}).Where("row_id = ?", dbAB.RowId).Updates(ab)
 		}
-	}
-	//2.4 删除
-	for id, dbAB := range dbABIds {
-		_, ok := aBIds[id]
-		if !ok {
-			tx.Delete(dbAB)
-		}
-	}
-	tx.Commit()
-	return nil
-
+		return nil
+	})
 }
 
 func (s *AddressBookService) List(page, pageSize uint, where func(tx *gorm.DB)) (res *model.AddressBookList) {

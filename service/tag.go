@@ -32,34 +32,38 @@ func (s *TagService) ListByUserIdAndCollectionId(userId, cid uint) (res *model.T
 	})
 	return
 }
-func (s *TagService) UpdateTags(userId uint, tags map[string]uint) {
-	tx := DB.Begin()
-	//先查询所有tag
-	var allTags []*model.Tag
-	tx.Where("user_id = ?", userId).Find(&allTags)
-	for _, t := range allTags {
-		if _, ok := tags[t.Name]; !ok {
-			//删除
-			tx.Delete(t)
-		} else {
-			if tags[t.Name] != t.Color {
-				//更新
-				t.Color = tags[t.Name]
-				tx.Save(t)
-			}
-			//移除
-			delete(tags, t.Name)
+func (s *TagService) UpdateTags(userId uint, tags map[string]uint) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockSQLiteWriter(tx); err != nil {
+			return err
 		}
-	}
-	//新增
-	for tag, color := range tags {
-		t := &model.Tag{}
-		t.Name = tag
-		t.Color = color
-		t.UserId = userId
-		tx.Create(t)
-	}
-	tx.Commit()
+		var allTags []*model.Tag
+		if err := tx.Where("user_id = ?", userId).Find(&allTags).Error; err != nil {
+			return err
+		}
+		for _, t := range allTags {
+			if _, ok := tags[t.Name]; !ok {
+				if err := tx.Delete(t).Error; err != nil {
+					return err
+				}
+			} else {
+				if tags[t.Name] != t.Color {
+					t.Color = tags[t.Name]
+					if err := tx.Save(t).Error; err != nil {
+						return err
+					}
+				}
+				delete(tags, t.Name)
+			}
+		}
+		for tag, color := range tags {
+			t := &model.Tag{Name: tag, Color: color, UserId: userId}
+			if err := tx.Create(t).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // InfoById 根据用户id取用户信息
